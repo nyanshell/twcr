@@ -21,16 +21,17 @@ user_coll = client['users']['users']
 
 
 def obtain_access_token():
-    
     resp = session.post(
         API + '/oauth2/token',
         headers={
-            'Authorization': 'Basic ' + base64.b64encode(f'{CONSUMER_KEY}:{CONSUMER_SECRET}'.encode('ascii')).decode('utf-8')},
+            'Authorization': 'Basic ' + base64.b64encode(
+                f'{CONSUMER_KEY}:{CONSUMER_SECRET}'.encode('ascii')).decode('utf-8')},
         data={'grant_type': 'client_credentials'},
         timeout=3.0,
     )
     resp.raise_for_status()
     return resp.json()['access_token']
+
 
 def get_user_tweets(screen_name, count=20):
     token = obtain_access_token()
@@ -79,13 +80,13 @@ def crawl():
             tweets = get_user_tweets(user['screen_name'], count=200)
             print('got', len(tweets), 'tweets from', user['screen_name'])
             followers = get_user_follower_ids(screen_name=user['screen_name'])
-        except HTTPError as err:
+        except HTTPError:
             print('rate limited while fetching tweets, sleep a while')
             time.sleep(300)
             continue
         try:
             tweets_coll.insert_many(tweets, ordered=False)
-        except BulkWriteError as err:
+        except BulkWriteError:
             pass
         except Exception as err:
             print(err)
@@ -102,11 +103,11 @@ def crawl():
                     if sum(is_zh_tweet(t['text']) for t in tweets) > 0.2:
                         user_coll.insert_one(candidate)
                         tweets_coll.insert_many(tweets, ordered=False)
-            except DuplicateKeyError as err:
+            except DuplicateKeyError:
                 pass
-            except BulkWriteError as err:
+            except BulkWriteError:
                 pass
-            except HTTPError as err:
+            except HTTPError:
                 print('rate limited, stop fetching users')
                 break
             except Exception as err:
@@ -120,4 +121,3 @@ if __name__ == '__main__':
         except Exception as err:
             print(err)
             time.sleep(300)
-
