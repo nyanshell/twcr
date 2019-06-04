@@ -12,9 +12,10 @@ from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 CONSUMER_KEY = os.getenv('CONSUMER_KEY')
 CONSUMER_SECRET = os.getenv('CONSUMER_SECRET')
+MONGODB_URL = os.getenv('MONGODB_URL', 'localhost')
 API = "https://api.twitter.com"
 session = requests.Session()
-client = MongoClient('localhost', 27017)
+client = MongoClient(MONGODB_URL, 27017)
 time.sleep(5.0)
 tweets_coll = client['tweets']['tweets']
 user_coll = client['users']['users']
