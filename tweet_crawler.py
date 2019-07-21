@@ -1,13 +1,14 @@
 import os
-import re
 import time
 import base64
 from random import shuffle
 
 import requests
+from langdetect import detect as detect_lang
 from pymongo import MongoClient
 from requests.exceptions import HTTPError
 from pymongo.errors import BulkWriteError, DuplicateKeyError
+from langdetect.lang_detect_exception import LangDetectException
 
 
 CONSUMER_KEY = os.getenv('CONSUMER_KEY')
@@ -19,6 +20,7 @@ client = MongoClient(MONGODB_URL, 27017)
 time.sleep(5.0)
 tweets_coll = client['tweets']['tweets']
 user_coll = client['users']['users']
+ZH_TWEET_THRESHOLD = 0.5
 
 
 def obtain_access_token():
@@ -66,11 +68,14 @@ def get_user_follower_ids(user_id=None, screen_name=None):
     return resp.json()
 
 
-def is_zh_tweet(s):
-    r = re.findall('[\u4e00-\u9fff]+', s)
-    if len(''.join(r)) / len(s) > 0.3:
-        return True
-    return False
+def count_zh_tweets(tweets):
+    cnt = 0
+    for t in tweets:
+        try:
+            if detect_lang(t['text']).startswith('zh'):
+                cnt += 1
+        except LangDetectException:
+            pass
 
 
 def crawl():
@@ -101,9 +106,17 @@ def crawl():
                 if not user['protected']:
                     tweets = get_user_tweets(candidate['screen_name'], count=200)
                     print('got', len(tweets), 'tweets from', candidate['screen_name'])
-                    if sum(is_zh_tweet(t['text']) for t in tweets) > 0.2:
+                    if not tweets:
+                        print('no tweets from', candidate['screen_name'], 'ignore.')
+                        continue
+                    zh_tweets_cnt = count_zh_tweets(tweets)
+                    print('zh tweets:', zh_tweets_cnt, 'current batch:',
+                          len(tweets), 'zh rate:', zh_tweets_cnt / len(tweets))
+                    if zh_tweets_cnt / len(tweets) > ZH_TWEET_THRESHOLD:
                         user_coll.insert_one(candidate)
                         tweets_coll.insert_many(tweets, ordered=False)
+                    else:
+                        print(candidate['screen_name'], 'not a zh user')
             except DuplicateKeyError:
                 pass
             except BulkWriteError:
