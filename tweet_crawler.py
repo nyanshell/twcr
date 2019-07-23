@@ -76,6 +76,7 @@ def count_zh_tweets(tweets):
                 cnt += 1
         except LangDetectException:
             pass
+    return cnt
 
 
 def crawl():
