@@ -20,7 +20,8 @@ client = MongoClient(MONGODB_URL, 27017)
 time.sleep(5.0)
 tweets_coll = client['tweets']['tweets']
 user_coll = client['users']['users']
-ZH_TWEET_THRESHOLD = 0.5
+ZH_TWEET_THRESHOLD = 0.3
+ZH_USER_SEEDS = os.getenv('SEED_USERS', 'zh_users_list.txt')
 
 
 def obtain_access_token():
@@ -79,13 +80,33 @@ def count_zh_tweets(tweets):
     return cnt
 
 
+def get_zh_user_list():
+    if os.path.exists(ZH_USER_SEEDS):
+        with open(ZH_USER_SEEDS) as fin:
+            users = [u.strip() for u in fin]
+        print(f'load {len(users)} zh users as seed')
+        shuffle(users)
+        return [{'protected': False, 'screen_name': u} for u in users]
+    return user_coll.aggregate([{"$sample": {"size": 1000}}])
+
+
 def crawl():
-    for user in user_coll.aggregate([{"$sample": {"size": 1000}}]):
+    for user in get_zh_user_list():
         if user['protected']:
             continue
         try:
             tweets = get_user_tweets(user['screen_name'], count=200)
             print('got', len(tweets), 'tweets from', user['screen_name'])
+            zh_tweets_cnt = count_zh_tweets(tweets)
+            if zh_tweets_cnt / len(tweets) > ZH_TWEET_THRESHOLD:
+                try:
+                    tweets_coll.insert_many(tweets, ordered=False)
+                except BulkWriteError as err:
+                    print(err)
+                    print('ignoring...')
+            else:
+                print(user['screen_name'], 'not a zh user')
+                continue
             followers = get_user_follower_ids(screen_name=user['screen_name'])
         except HTTPError:
             print('rate limited while fetching tweets, sleep a while')
