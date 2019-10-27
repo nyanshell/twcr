@@ -80,13 +80,14 @@ def count_zh_tweets(tweets):
     return cnt
 
 
-def get_zh_user_list():
+def get_zh_user_list(top_k=1000):
     if os.path.exists(ZH_USER_SEEDS):
         with open(ZH_USER_SEEDS) as fin:
             users = [u.strip() for u in fin]
         print(f'load {len(users)} zh users as seed')
         shuffle(users)
-        return [{'protected': False, 'screen_name': u} for u in users]
+        for u in (users := users[:top_k]):
+            yield {'protected': False, 'screen_name': u}
     return user_coll.aggregate([{"$sample": {"size": 1000}}])
 
 
