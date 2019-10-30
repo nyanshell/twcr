@@ -6,6 +6,7 @@ from random import shuffle
 import requests
 from langdetect import detect as detect_lang
 from pymongo import MongoClient
+from redis import from_url
 from requests.exceptions import HTTPError
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 from langdetect.lang_detect_exception import LangDetectException
@@ -20,8 +21,10 @@ client = MongoClient(MONGODB_URL, 27017)
 time.sleep(5.0)
 tweets_coll = client['tweets']['tweets']
 user_coll = client['users']['users']
+redis_conn = from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
 ZH_TWEET_THRESHOLD = 0.3
 ZH_USER_SEEDS = os.getenv('SEED_USERS', 'zh_users_list.txt')
+REDIS_USERS = 'twitter:zh_users'
 
 
 def obtain_access_token():
@@ -80,26 +83,20 @@ def count_zh_tweets(tweets):
     return cnt
 
 
-def get_zh_user_list(top_k=1000):
-    if os.path.exists(ZH_USER_SEEDS):
-        with open(ZH_USER_SEEDS) as fin:
-            users = [u.strip() for u in fin]
-        print(f'load {len(users)} zh users as seed')
-        shuffle(users)
-        for u in (users := users[:top_k]):
-            yield {'protected': False, 'screen_name': u}
-    return user_coll.aggregate([{"$sample": {"size": 1000}}])
+def get_zh_users():
+    while True:
+        user = redis_conn.spop(REDIS_USERS).decode('utf-8')
+        yield {'protected': False, 'screen_name': user}
 
 
 def crawl():
-    for user in get_zh_user_list():
-        if user['protected']:
-            continue
+    for user in get_zh_users():
         try:
             tweets = get_user_tweets(user['screen_name'], count=200)
             print('got', len(tweets), 'tweets from', user['screen_name'])
             zh_tweets_cnt = count_zh_tweets(tweets)
             if zh_tweets_cnt / len(tweets) > ZH_TWEET_THRESHOLD:
+                redis_conn.sadd(REDIS_USERS, user['screen_name'].encode('utf-8'))
                 try:
                     tweets_coll.insert_many(tweets, ordered=False)
                 except BulkWriteError as err:
@@ -136,6 +133,7 @@ def crawl():
                     print('zh tweets:', zh_tweets_cnt, 'current batch:',
                           len(tweets), 'zh rate:', zh_tweets_cnt / len(tweets))
                     if zh_tweets_cnt / len(tweets) > ZH_TWEET_THRESHOLD:
+                        redis_conn.sadd(REDIS_USERS, candidate['screen_name'].encode('utf-8'))
                         user_coll.insert_one(candidate)
                         tweets_coll.insert_many(tweets, ordered=False)
                     else:
